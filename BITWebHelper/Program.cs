@@ -127,29 +127,29 @@ namespace BITWebHelper {
             return Convert.ToInt64(ts.TotalMilliseconds).ToString();
         }
 
-        private static string GetChallengeReqStr(string ispname) {
-            string callbackstr = "jsonp" + GetTimeStamp(),
-                   username = USER_NAME + "@" + ispname,
+        private static string GetChallengeReqStr() {
+            string callbackstr = "jQuery" + GetTimeStamp(),
+                   username = USER_NAME,
                    usernamestr = HttpUtility.UrlEncode(username);
             string ChallengeReqStr = string.Format("callback={0}&username={1}", callbackstr, usernamestr);
             return ChallengeReqStr;
         }
 
         private static string GetLogoutReqStr() {
-            string callbackstr = "jsonp" + GetTimeStamp(),
+            string callbackstr = "jQuery" + GetTimeStamp(),
                    actionstr = "logout",
                    usernamestr = USER_NAME;
             string LogoutReqStr = string.Format("callback={0}&action={1}&username={2}", callbackstr, actionstr, usernamestr);
             return LogoutReqStr;
         }
 
-        private static string GetLoginReqStr(string ac_id, string ispname) {
-            string callbackstr = "jsonp" + GetTimeStamp(),
+        private static string GetLoginReqStr(string ac_id) {
+            string callbackstr = "jQuery" + GetTimeStamp(),
                    actionstr = "login",
                    nstr = "200",
                    typestr = "1",
                    ipstr = client_ip,
-                   username = USER_NAME + "@" + ispname,
+                   username = USER_NAME,
                    usernamestr = HttpUtility.UrlEncode(username),
                    hmd5 = HexHMACMD5(/*USER_PASSWORD*/ "", challenge),
                    passwordstr = HttpUtility.UrlEncode("{MD5}" + hmd5);
@@ -176,7 +176,7 @@ namespace BITWebHelper {
                 }
             }
             Console.WriteLine("Response: {0}", response);
-            response = response[19..^1];
+            response = response[20..^1];
             JsonNode? jsonobj = JsonNode.Parse(response);
             if (jsonobj == null) {
                 return null;
@@ -198,8 +198,8 @@ namespace BITWebHelper {
             return jsonobj;
         }
 
-        private static void RefreshChallenge(string ispname) {
-            JsonNode? retjson = SendReqAsync(CHALLENGE_URL, GetChallengeReqStr(ispname)).GetAwaiter().GetResult();
+        private static void RefreshChallenge() {
+            JsonNode? retjson = SendReqAsync(CHALLENGE_URL, GetChallengeReqStr()).GetAwaiter().GetResult();
             if (retjson != null) {
                 //JsonNode? root = retjson[0];
                 //if (root == null) {
@@ -231,7 +231,7 @@ namespace BITWebHelper {
         }
 
         public static void Logout() {
-            RefreshChallenge("");
+            RefreshChallenge();
             JsonNode? retjson = SendReqAsync(BASE_URL, GetLogoutReqStr()).GetAwaiter().GetResult();
             if (retjson != null) {
                 Console.WriteLine("Logout succeeded.");
@@ -242,9 +242,9 @@ namespace BITWebHelper {
             //Console.WriteLine("\n");
         }
 
-        public static void Login(string ac_id, string ispname) {
-            RefreshChallenge(ispname);
-            JsonNode? retjson = SendReqAsync(BASE_URL, GetLoginReqStr(ac_id, ispname)).GetAwaiter().GetResult();
+        public static void Login(string ac_id) {
+            RefreshChallenge();
+            JsonNode? retjson = SendReqAsync(BASE_URL, GetLoginReqStr(ac_id)).GetAwaiter().GetResult();
             if (retjson != null) {
                 Console.WriteLine("Login succeeded.");
             }
@@ -259,18 +259,17 @@ namespace BITWebHelper {
 
         static int Main(string[] args) {
 
-            if (args.Length != 4) {
+            if (args.Length != 3) {
                 Console.WriteLine("Bad arguments!");
                 Console.WriteLine("BITWebHelper <access_id> <ispname> <username> <password>");
                 return 0;
             }
             string ac_id = args[0],
-                   ispname = args[1],
-                   username = args[2],
-                   password = args[3];
+                   username = args[1],
+                   password = args[2];
             WebHelper.Init(username, password);
             WebHelper.Logout();
-            WebHelper.Login(ac_id, ispname);
+            WebHelper.Login(ac_id);
             //Console.ReadLine();
             return 0;
 
