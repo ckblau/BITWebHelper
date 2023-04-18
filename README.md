@@ -10,7 +10,7 @@
 
 #### 使用说明
 
-BITWebHelper <access_id> <username> <password>
+BITWebHelper \<access_id\> \<username\> \<password\>
 
 access_id：一般为1或8，请查询本地网络登陆界面网址中的ac_id
 
