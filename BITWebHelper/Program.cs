@@ -2,6 +2,8 @@
 using System.Text;
 using System.Web;
 using System.Text.Json.Nodes;
+using System.CommandLine;
+using System.CommandLine.Parsing;
 
 namespace BITWebHelper {
 
@@ -47,10 +49,10 @@ namespace BITWebHelper {
                 k = kk;
             }
             uint z = v[n],
-                 y, m, e,
-                 c = unchecked((uint)-1640531527),
-                 q = 6 + 52 / (n + 1),
-                 d = 0;
+                    y, m, e,
+                    c = unchecked((uint)-1640531527),
+                    q = 6 + 52 / (n + 1),
+                    d = 0;
             while (0 < q--) {
                 d += c;
                 e = (d >> 2) & 3;
@@ -68,20 +70,14 @@ namespace BITWebHelper {
 
     }
 
-    class NetHelper {
-
-    }
-
     static class WebHelper {
 
         private static readonly string BASE_URL = "http://10.0.0.55/cgi-bin/srun_portal";
         private static readonly string CHALLENGE_URL = "http://10.0.0.55/cgi-bin/get_challenge";
+        private static readonly string CHECK_URL = "http://10.0.0.55/cgi-bin/rad_user_info";
 
         private static readonly string RAW_B64_STR = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
         private static readonly string TRANS_B64_STR = "LVoJPiCN2R8G90yg+hmFHuacZ1OWMnrsSTXkYpUq/3dlbfKwv6xztjI7DeBE45QA";
-
-        private static string USER_NAME = "";
-        private static string USER_PASSWORD = "";
 
         private static string client_ip = "";
         private static string challenge = "";
@@ -127,39 +123,43 @@ namespace BITWebHelper {
             return Convert.ToInt64(ts.TotalMilliseconds).ToString();
         }
 
-        private static string GetChallengeReqStr() {
+        private static string GetChallengeReqStr(string username) {
             string callbackstr = "jQuery" + GetTimeStamp(),
-                   username = USER_NAME,
-                   usernamestr = HttpUtility.UrlEncode(username);
+                    usernamestr = HttpUtility.UrlEncode(username);
             string ChallengeReqStr = string.Format("callback={0}&username={1}", callbackstr, usernamestr);
             return ChallengeReqStr;
         }
 
-        private static string GetLogoutReqStr() {
+        private static string GetCheckReqStr() {
+            string callbackstr = "jQuery" + GetTimeStamp();
+            string CheckReqStr = string.Format("callback={0}", callbackstr);
+            return CheckReqStr;
+        }
+
+        private static string GetLogoutReqStr(string username) {
             string callbackstr = "jQuery" + GetTimeStamp(),
-                   actionstr = "logout",
-                   usernamestr = USER_NAME;
+                    actionstr = "logout",
+                    usernamestr = HttpUtility.UrlEncode(username);
             string LogoutReqStr = string.Format("callback={0}&action={1}&username={2}", callbackstr, actionstr, usernamestr);
             return LogoutReqStr;
         }
 
-        private static string GetLoginReqStr(string ac_id) {
+        private static string GetLoginReqStr(string ac_id, string username, string password) {
             string callbackstr = "jQuery" + GetTimeStamp(),
                    actionstr = "login",
                    nstr = "200",
                    typestr = "1",
                    ipstr = client_ip,
-                   username = USER_NAME,
                    usernamestr = HttpUtility.UrlEncode(username),
                    hmd5 = HexHMACMD5(/*USER_PASSWORD*/ "", challenge),
                    passwordstr = HttpUtility.UrlEncode("{MD5}" + hmd5);
-            string infojson = string.Format("{{\"username\":\"{0}\",\"password\":\"{1}\",\"ip\":\"{2}\",\"acid\":\"{3}\",\"enc_ver\":\"srun_bx1\"}}", username, USER_PASSWORD, client_ip, ac_id);
+            string infojson = string.Format("{{\"username\":\"{0}\",\"password\":\"{1}\",\"ip\":\"{2}\",\"acid\":\"{3}\",\"enc_ver\":\"srun_bx1\"}}", username, password, client_ip, ac_id);
             string info = "{SRBX1}" + Base64ModEncode(XEncode.Encode(infojson, challenge)),
                    infostr = HttpUtility.UrlEncode(info);
             string checksumstr = HexSHA1(challenge + username + challenge + hmd5 + challenge + ac_id + challenge + ipstr + challenge + nstr + challenge + typestr + challenge + info);
             string LoginReqStr = string.Format("callback={0}&action={1}&n={2}&type={3}&ac_id={4}&ip={5}&username={6}&password={7}&info={8}&chksum={9}", callbackstr, actionstr, nstr, typestr, ac_id, ipstr, usernamestr, passwordstr, infostr, checksumstr);
             return LoginReqStr;
-}
+        }
 
         private static async Task<JsonNode?> SendReqAsync(string url, string reqstr) {
             string target = url + "?" + reqstr;
@@ -178,38 +178,34 @@ namespace BITWebHelper {
             Console.WriteLine("Response: {0}", response);
             response = response[20..^1];
             JsonNode? jsonobj = JsonNode.Parse(response);
+            return jsonobj;
+        }
+
+        private static bool CheckResponse(JsonNode? jsonobj) {
             if (jsonobj == null) {
-                return null;
+                return false;
             }
-            //JsonNode? root = jsonobj[0];
-            //if (root == null) {
-            //    return null;
-            //}
             string? res = (string?)jsonobj["res"];
             if (res == null) {
-                return null;
+                return false;
             }
             if (res != "ok") {
                 string? error = (string?)jsonobj["error"];
                 string? error_msg = (string?)jsonobj["error_msg"];
                 Console.WriteLine("An error occurred: {0}, {1}, {2}", res, error, error_msg);
-                return null;
+                return false;
             }
-            return jsonobj;
+            return true;
         }
 
-        private static void RefreshChallenge() {
-            JsonNode? retjson = SendReqAsync(CHALLENGE_URL, GetChallengeReqStr()).GetAwaiter().GetResult();
-            if (retjson != null) {
-                //JsonNode? root = retjson[0];
-                //if (root == null) {
-                //    throw new Exception("Bad JSON for parsing!");
-                //}
-                string? _client_ip = (string?)retjson["client_ip"];
+        private static void RefreshChallenge(string username) {
+            JsonNode? retjson = SendReqAsync(CHALLENGE_URL, GetChallengeReqStr(username)).GetAwaiter().GetResult();
+            if (CheckResponse(retjson)) {
+                string? _client_ip = (string?)retjson?["client_ip"];
                 if (_client_ip == null) {
                     throw new Exception("Bad JSON for parsing!");
                 }
-                string? _challenge = (string?)retjson["challenge"];
+                string? _challenge = (string?)retjson?["challenge"];
                 if (_challenge == null) {
                     throw new Exception("Bad JSON for parsing!");
                 }
@@ -224,57 +220,109 @@ namespace BITWebHelper {
             }
         }
 
-        public static void Init(string username, string password) {
-            USER_NAME = username;
-            USER_PASSWORD = password;
+        public static int Login(string ac_id, string username, string password) {
             Console.WriteLine("\n\nTIME: {0}", DateTime.Now.ToString());
-        }
 
-        public static void Logout() {
-            RefreshChallenge();
-            JsonNode? retjson = SendReqAsync(BASE_URL, GetLogoutReqStr()).GetAwaiter().GetResult();
-            if (retjson != null) {
-                Console.WriteLine("Logout succeeded.");
-            }
-            else {
-                Console.WriteLine("Logout failed.");
-            }
-            //Console.WriteLine("\n");
-        }
-
-        public static void Login(string ac_id) {
-            RefreshChallenge();
-            JsonNode? retjson = SendReqAsync(BASE_URL, GetLoginReqStr(ac_id)).GetAwaiter().GetResult();
-            if (retjson != null) {
+            RefreshChallenge(username);
+            JsonNode? retjson = SendReqAsync(BASE_URL, GetLoginReqStr(ac_id, username, password)).GetAwaiter().GetResult();
+            if (CheckResponse(retjson)) {
                 Console.WriteLine("Login succeeded.");
+                return 0;
             }
             else {
                 Console.WriteLine("Login failed.");
+                return 1;
             }
-            //Console.WriteLine("\n");
+        }
+
+        public static int Logout(string username) {
+            Console.WriteLine("\n\nTIME: {0}", DateTime.Now.ToString());
+
+            RefreshChallenge(username);
+            JsonNode? retjson = SendReqAsync(BASE_URL, GetLogoutReqStr(username)).GetAwaiter().GetResult();
+            if (CheckResponse(retjson)) {
+                Console.WriteLine("Logout succeeded.");
+                return 0;
+            }
+            else {
+                Console.WriteLine("Logout failed.");
+                return 1;
+            }
+        }
+
+        public static int Check() {
+            Console.WriteLine("\n\nTIME: {0}", DateTime.Now.ToString());
+
+            JsonNode? retjson = SendReqAsync(CHECK_URL, GetCheckReqStr()).GetAwaiter().GetResult();
+            if (retjson != null) {
+                string? error = (string?)retjson["error"];
+                if (error == "ok") {
+                    Console.WriteLine("You're currently online.");
+                    return 0;
+                }
+                else if (error == "not_online_error") {
+                    Console.WriteLine("You're not online.");
+                    return 1;
+                }
+                Console.WriteLine("Failed to check online status.");
+                return 1;
+            }
+            else {
+                Console.WriteLine("Failed to check online status.");
+                return 1;
+            }
         }
     }
 
     class Program {
-
         static int Main(string[] args) {
+            var rootCommand = new RootCommand("BITWebHelper");
 
-            if (args.Length != 3) {
-                Console.WriteLine("Bad arguments!");
-                Console.WriteLine("BITWebHelper <access_id> <username> <password>");
-                return 0;
-            }
-            string ac_id = args[0],
-                   username = args[1],
-                   password = args[2];
-            WebHelper.Init(username, password);
-            WebHelper.Logout();
-            WebHelper.Login(ac_id);
-            //Console.ReadLine();
-            return 0;
+            var checkCommand = new Command(
+                name: "check",
+                description: "Check whether you have logged in, return 0 if logged in, 1 if not.");
+            rootCommand.AddCommand(checkCommand);
 
+            var loginCommand = new Command(
+                name: "login",
+                description: "Log in.");
+            rootCommand.AddCommand(loginCommand);
+
+            var logoutCommand = new Command(
+                name: "logout",
+                description: "Log out.");
+            rootCommand.AddCommand(logoutCommand);
+
+
+            var acidArg = new Argument<string>(
+                name: "ac_id",
+                description: "Usually 1 or 8, you can check this out by directly visiting " +
+                             "http://10.0.0.55 and looking for \"ac_id\" in the link after redirection.");
+            var usernameArg = new Argument<string>(
+                name: "username",
+                description: "Your username.");
+            var passwordArg = new Argument<string>(
+                name: "password",
+                description: "Your password.");
+
+            loginCommand.AddArgument(acidArg);
+            loginCommand.AddArgument(usernameArg);
+            loginCommand.AddArgument(passwordArg);
+
+            logoutCommand.AddArgument(acidArg);
+            logoutCommand.AddArgument(usernameArg);
+
+            checkCommand.SetHandler(() => Task.FromResult(WebHelper.Check()));
+
+            loginCommand.SetHandler(
+                (ac_id, username, password) => Task.FromResult(WebHelper.Login(ac_id, username, password)), 
+                acidArg, usernameArg, passwordArg);
+
+            logoutCommand.SetHandler(
+                (username) => Task.FromResult(WebHelper.Logout(username)), 
+                usernameArg);
+
+            return rootCommand.Invoke(args);
         }
-
     }
-
 }
