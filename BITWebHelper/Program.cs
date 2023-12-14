@@ -9,7 +9,7 @@ namespace BITWebHelper {
 
     static class XEncode {
 
-        public static uint[] CompressBytes(byte[] raw, bool addlen) {
+        private static uint[] CompressBytes(byte[] raw, bool addlen) {
             int len = raw.Length;
             uint[] vec = new uint[((len + 3) >> 2) + (addlen ? 1 : 0)];
             Buffer.BlockCopy(raw, 0, vec, 0, len);
@@ -19,7 +19,7 @@ namespace BITWebHelper {
             return vec;
         }
 
-        public static byte[] DecompressBytes(uint[] vec, bool addlen) {
+        private static byte[] DecompressBytes(uint[] vec, bool addlen) {
             int len = vec.Length, rawlen = (len - (addlen ? 1 : 0)) << 2;
             if (addlen) {
                 int m = (int)vec[len - 1];
@@ -36,7 +36,7 @@ namespace BITWebHelper {
             return Encode(Encoding.ASCII.GetBytes(data), Encoding.ASCII.GetBytes(key));
         }
 
-        public static byte[] Encode(byte[] str, byte[] key) {
+        private static byte[] Encode(byte[] str, byte[] key) {
             uint[] v = CompressBytes(str, true);
             uint n = (uint)v.Length - 1;
             if (n < 1) {
@@ -79,10 +79,7 @@ namespace BITWebHelper {
         private static readonly string RAW_B64_STR = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
         private static readonly string TRANS_B64_STR = "LVoJPiCN2R8G90yg+hmFHuacZ1OWMnrsSTXkYpUq/3dlbfKwv6xztjI7DeBE45QA";
 
-        private static string client_ip = "";
-        private static string challenge = "";
-
-        private static string Base64ModEncode(byte[] data) {
+        public static string Base64ModEncode(byte[] data) {
             string base64 = Convert.ToBase64String(data);
             string modstr = "";
             for (int i = 0; i < base64.Length; ++i) {
@@ -144,7 +141,7 @@ namespace BITWebHelper {
             return LogoutReqStr;
         }
 
-        private static string GetLoginReqStr(string ac_id, string username, string password) {
+        private static string GetLoginReqStr(string ac_id, string username, string password, string client_ip, string challenge) {
             string callbackstr = "jQuery" + GetTimeStamp(),
                    actionstr = "login",
                    nstr = "200",
@@ -198,33 +195,30 @@ namespace BITWebHelper {
             return true;
         }
 
-        private static void RefreshChallenge(string username) {
+        private static ValueTuple<string, string> RefreshChallenge(string username) {
+            string client_ip, challenge;
             JsonNode? retjson = SendReqAsync(CHALLENGE_URL, GetChallengeReqStr(username)).GetAwaiter().GetResult();
             if (CheckResponse(retjson)) {
-                string? _client_ip = (string?)retjson?["client_ip"];
-                if (_client_ip == null) {
-                    throw new Exception("Bad JSON for parsing!");
-                }
-                string? _challenge = (string?)retjson?["challenge"];
-                if (_challenge == null) {
-                    throw new Exception("Bad JSON for parsing!");
-                }
+                string? _client_ip = (string?)retjson?["client_ip"] ?? throw new Exception("Bad JSON for parsing!");
+                string? _challenge = (string?)retjson?["challenge"] ?? throw new Exception("Bad JSON for parsing!");
                 client_ip = _client_ip;
                 challenge = _challenge;
                 Console.WriteLine("Get-Challenge succeeded.");
                 Console.WriteLine("IP: {0}", client_ip);
                 Console.WriteLine("Challenge: {0}", challenge);
+                return (client_ip, challenge);
             }
             else {
                 Console.WriteLine("Get-Challenge failed.");
+                return ("", "");
             }
         }
 
         public static int Login(string ac_id, string username, string password) {
+            string client_ip, challenge;
             Console.WriteLine("\n\nTIME: {0}", DateTime.Now.ToString());
-
-            RefreshChallenge(username);
-            JsonNode? retjson = SendReqAsync(BASE_URL, GetLoginReqStr(ac_id, username, password)).GetAwaiter().GetResult();
+            (client_ip, challenge) = RefreshChallenge(username);
+            JsonNode? retjson = SendReqAsync(BASE_URL, GetLoginReqStr(ac_id, username, password, client_ip, challenge)).GetAwaiter().GetResult();
             if (CheckResponse(retjson)) {
                 Console.WriteLine("Login succeeded.");
                 return 0;
@@ -237,8 +231,6 @@ namespace BITWebHelper {
 
         public static int Logout(string username) {
             Console.WriteLine("\n\nTIME: {0}", DateTime.Now.ToString());
-
-            RefreshChallenge(username);
             JsonNode? retjson = SendReqAsync(BASE_URL, GetLogoutReqStr(username)).GetAwaiter().GetResult();
             if (CheckResponse(retjson)) {
                 Console.WriteLine("Logout succeeded.");
@@ -309,7 +301,6 @@ namespace BITWebHelper {
             loginCommand.AddArgument(usernameArg);
             loginCommand.AddArgument(passwordArg);
 
-            logoutCommand.AddArgument(acidArg);
             logoutCommand.AddArgument(usernameArg);
 
             checkCommand.SetHandler(() => Task.FromResult(WebHelper.Check()));
